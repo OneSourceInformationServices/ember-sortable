@@ -1,11 +1,23 @@
+import { Promise } from 'rsvp';
+import Mixin from '@ember/object/mixin';
+import $ from 'jquery';
+import { run } from '@ember/runloop';
 import Ember from 'ember';
 import computed from 'ember-new-computed';
-const { Mixin, $, run } = Ember;
-const { Promise } = Ember.RSVP;
+import scrollParent from '../system/scroll-parent';
+import ScrollContainer from '../system/scroll-container';
+import { invokeAction } from 'ember-invoke-action';
+import { throttle } from '@ember/runloop';
+
+const dragActions = 'mousemove.emberSortable touchmove.emberSortable';
+const elementClickAction = 'click.emberSortable';
+const endActions = 'click.emberSortable mouseup.emberSortable touchend.emberSortable';
 
 export default Mixin.create({
   classNames: ['sortable-item'],
   classNameBindings: ['isDragging', 'isDropping'],
+
+  attributeBindings: ['data-test-selector', 'tabindex'],
 
   /**
     Group to which the item belongs.
@@ -33,11 +45,25 @@ export default Mixin.create({
   handle: null,
 
   /**
-    True if the item is currently being dragged.
-    @property isDragging
-    @type Boolean
-    @default false
-  */
+   * Tolerance, in pixels, for when sorting should start.
+   * If specified, sorting will not start until after mouse
+   * is dragged beyond distance. Can be used to allow for clicks
+   * on elements within a handle.
+   *
+   * @property distance
+   * @type Integer
+   * @default 0
+   */
+  distance: 0,
+
+  /**
+   * True if the item is currently being dragged.
+   *
+   * @property isDragging
+   * @type Boolean
+   * @default false
+   * @protected
+   */
   isDragging: false,
 
   /**
@@ -102,6 +128,8 @@ export default Mixin.create({
     @type Boolean
   */
   isAnimated: computed(function() {
+    if (!this.element || !this.$()) { return; }
+
     let el = this.$();
     let property = el.css('transition-property');
 
@@ -116,7 +144,7 @@ export default Mixin.create({
   transitionDuration: computed(function() {
     let el = this.$();
     let rule = el.css('transition-duration');
-    let match = rule.match(/([\d\.]+)([ms]*)/);
+    let match = rule.match(/([\d.]+)([ms]*)/);
 
     if (match) {
       let value = parseFloat(match[1]);
@@ -207,6 +235,13 @@ export default Mixin.create({
   }).volatile(),
 
   /**
+    @private
+    Allows host instance to use the `group` property for something else with
+    minimal overriding.
+  */
+  _direction: computed.readOnly('group.direction'),
+
+  /**
     @method didInsertElement
   */
   didInsertElement() {
@@ -214,6 +249,11 @@ export default Mixin.create({
     // scheduled to prevent deprecation warning:
     // "never change properties on components, services or models during didInsertElement because it causes significant performance degradation"
     run.schedule("afterRender", this, "_tellGroup", "registerItem", this);
+
+    // Instead of using `event.preventDefault()` in the 'primeDrag' event,
+    // (doesn't work in Chrome 56), we set touch-action: none as a workaround.
+    let element = this.get('handle') ? this.$(this.get('handle')) : this.$();
+    element.css({ 'touch-action': 'none' });
   },
 
   /**
@@ -223,6 +263,13 @@ export default Mixin.create({
     // scheduled to prevent deprecation warning:
     // "never change properties on components, services or models during didInsertElement because it causes significant performance degradation"
     run.schedule("afterRender", this, "_tellGroup", "deregisterItem", this);
+
+    // remove event listeners that may still be attached
+    $(window).off(dragActions, this._startDragListener);
+    $(window).off(endActions, this._cancelStartDragListener);
+    $(this.element).off(elementClickAction, this._preventClickHandler);
+    this.set('isDragging', false);
+    this.set('isDropping', false);
   },
 
   /**
@@ -279,53 +326,171 @@ export default Mixin.create({
   },
 
   /**
-    @method _primeDrag
-    @private
-  */
-  _primeDrag(event) {
+   * Setup event listeners for drag and drop
+   *
+   * @method _primeDrag
+   * @param {Event} event JS Event object
+   * @private
+   */
+  _primeDrag(startEvent) {
     let handle = this.get('handle');
 
-    if (handle && !$(event.target).closest(handle).length) {
+    if (handle && !$(startEvent.target).closest(handle).length) {
       return;
     }
 
-    event.preventDefault();
-    event.stopPropagation();
+    startEvent.preventDefault();
+    startEvent.stopPropagation();
 
-    let startDragListener = event => this._startDrag(event);
+    this._prepareDragListener = run.bind(this, this._prepareDrag, startEvent);
 
-    function cancelStartDragListener() {
-      $(window).off('mousemove touchmove', startDragListener);
-    }
+    this._cancelStartDragListener = () => {
+      $(window).off(dragActions, this._prepareDragListener);
+    };
 
-    $(window).one('mousemove touchmove', startDragListener);
-    $(window).one('mouseup touchend', cancelStartDragListener);
+    $(window).on(dragActions, this._prepareDragListener);
+    $(window).one(endActions, this._cancelStartDragListener);
   },
 
   /**
-    @method _startDrag
-    @private
-  */
+   * Prepares for the drag event
+   *
+   * @method _prepareDrag
+   * @param {Event} event JS Event object
+   * @param {Event} event JS Event object
+   * @private
+   */
+  _prepareDrag(startEvent, event) {
+    let distance = this.get('distance');
+    let dx = Math.abs(getX(startEvent) - getX(event));
+    let dy = Math.abs(getY(startEvent) - getY(event));
+
+    if (distance <= dx || distance <= dy) {
+      $(window).off(dragActions, this._prepareDragListener);
+      this._startDrag(startEvent);
+    }
+  },
+
+  /**
+   * Start dragging & setup more event listeners
+   *
+   * @method _startDrag
+   * @param {Event} event JS Event object
+   * @private
+   */
   _startDrag(event) {
     if (this.get('isBusy')) { return; }
 
     let drag = this._makeDragHandler(event);
+    let dragThrottled = ev => throttle(this, drag, ev, 16, false);
 
     let drop = () => {
       $(window)
-        .off('mousemove touchmove', drag)
-        .off('mouseup touchend', drop);
+        .off(dragActions, dragThrottled)
+        .off(endActions, drop);
 
       this._drop();
     };
 
     $(window)
-      .on('mousemove touchmove', drag)
-      .on('mouseup touchend', drop);
+      .on(dragActions, dragThrottled)
+      .on(endActions, drop);
 
     this._tellGroup('prepare');
     this.set('isDragging', true);
-    this.sendAction('onDragStart', this.get('model'));
+    invokeAction(this, 'onDragStart', this.get('model'));
+
+    this._scrollOnEdges(drag);
+  },
+
+  /**
+    The maximum scroll speed when dragging element.
+    @property maxScrollSpeed
+    @default 20
+   */
+  maxScrollSpeed: 20,
+
+  _scrollOnEdges(drag) {
+    let groupDirection = this.get('_direction');
+    let $element = this.$();
+    let scrollContainer = new ScrollContainer(scrollParent($element)[0]);
+    let itemContainer = {
+      width: $element.width(),
+      get height() {
+        return $element.height();
+      },
+      get left() {
+        return $element.offset().left;
+      },
+      get right() {
+        return this.left + this.width;
+      },
+      get top() {
+        return $element.offset().top;
+      },
+      get bottom() {
+        return this.top + this.height;
+      }
+    };
+
+    let leadingEdgeKey, trailingEdgeKey, scrollKey, pageKey;
+    if (groupDirection === 'x') {
+      leadingEdgeKey = 'left';
+      trailingEdgeKey = 'right';
+      scrollKey = 'scrollLeft';
+      pageKey = 'pageX';
+    } else {
+      leadingEdgeKey = 'top';
+      trailingEdgeKey = 'bottom';
+      scrollKey = 'scrollTop';
+      pageKey = 'pageY';
+    }
+
+    let createFakeEvent = () => {
+      if (this._pageX == null && this._pageY == null) { return; }
+      return {
+        pageX: this._pageX,
+        pageY: this._pageY
+      };
+    };
+
+    // Set a trigger padding that will start scrolling
+    // the box when the item reaches within padding pixels
+    // of the edge of the scroll container.
+    let checkScrollBounds = () => {
+      let leadingEdge = itemContainer[leadingEdgeKey];
+      let trailingEdge = itemContainer[trailingEdgeKey];
+      let scroll = scrollContainer[scrollKey]();
+
+      let delta = 0;
+      if (trailingEdge >= scrollContainer[trailingEdgeKey]) {
+        delta = trailingEdge - scrollContainer[trailingEdgeKey];
+      } else if (leadingEdge <= scrollContainer[leadingEdgeKey]) {
+        delta = leadingEdge - scrollContainer[leadingEdgeKey];
+      }
+
+      if (delta !== 0) {
+        let speed = this.get('maxScrollSpeed');
+        delta = Math.min(Math.max(delta, -1 * speed), speed);
+
+        delta = scrollContainer[scrollKey](scroll + delta) - scroll;
+
+        let event = createFakeEvent();
+        if (event) {
+          if (scrollContainer.isWindow) {
+            event[pageKey] += delta;
+          }
+          run(() => drag(event));
+        }
+      }
+      if (this.get('isDragging')) {
+        requestAnimationFrame(checkScrollBounds);
+      }
+    };
+
+    if (!Ember.testing) {
+      requestAnimationFrame(checkScrollBounds);
+    }
   },
 
   /**
@@ -335,7 +500,7 @@ export default Mixin.create({
     @private
   */
   _makeDragHandler(startEvent) {
-    const groupDirection = this.get('group.direction');
+    const groupDirection = this.get('_direction');
     let dragOrigin;
     let elementOrigin;
     let scrollOrigin;
@@ -347,7 +512,8 @@ export default Mixin.create({
       scrollOrigin = parentElement.offset().left - parentElement.scrollLeft();
 
       return event => {
-        let dx = getX(event) - dragOrigin;
+        this._pageX = getX(event);
+        let dx = this._pageX - dragOrigin;
         let scrollX = parentElement.offset().left - parentElement.scrollLeft();
         let x = elementOrigin + dx + (scrollOrigin - scrollX);
 
@@ -361,7 +527,8 @@ export default Mixin.create({
       scrollOrigin = parentElement.offset().top - parentElement.scrollTop();
 
       return event => {
-        let dy = getY(event) - dragOrigin;
+        this._pageY = getY(event);
+        let dy = this._pageY - dragOrigin;
         let scrollY = parentElement.offset().top - parentElement.scrollTop();
         let y = elementOrigin + dy + (scrollOrigin - scrollY);
 
@@ -395,9 +562,9 @@ export default Mixin.create({
     @private
   */
   _applyPosition() {
-    if (!this.element) { return; }
+    if (!this.element || !this.$()) { return; }
 
-    const groupDirection = this.get('group.direction');
+    const groupDirection = this.get('_direction');
 
     if (groupDirection === 'x') {
       let x = this.get('x');
@@ -422,8 +589,11 @@ export default Mixin.create({
     @private
   */
   _drag(dimension) {
+    if(!this.get("isDragging")) {
+      return;
+    }
     let updateInterval = this.get('updateInterval');
-    const groupDirection = this.get('group.direction');
+    const groupDirection = this.get('_direction');
 
     if (groupDirection === 'x') {
       this.set('x', dimension);
@@ -440,9 +610,9 @@ export default Mixin.create({
     @private
   */
   _drop() {
-    if (!this.element) { return; }
+    if (!this.element || !this.$()) { return; }
 
-    this._preventClick(this.element);
+    this._preventClick();
 
     this.set('isDragging', false);
     this.set('isDropping', true);
@@ -457,8 +627,18 @@ export default Mixin.create({
     @method _preventClick
     @private
   */
-  _preventClick(element) {
-    $(element).one('click', function(e){ e.stopImmediatePropagation(); } );
+  _preventClick() {
+    $(this.element).one(elementClickAction, this._preventClickHandler);
+  },
+
+  /**
+    @method _preventClickHandler
+    @private
+  */
+  _preventClickHandler(e) {
+    e.stopPropagation();
+    e.preventDefault();
+    e.stopImmediatePropagation();
   },
 
   /**
@@ -485,7 +665,7 @@ export default Mixin.create({
     @private
   */
   _complete() {
-    this.sendAction('onDragStop', this.get('model'));
+    invokeAction(this, 'onDragStop', this.get('model'));
     this.set('isDropping', false);
     this.set('wasDropped', true);
     this._tellGroup('commit');

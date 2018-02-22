@@ -1,9 +1,9 @@
+import EmberObject from '@ember/object';
+import { run } from '@ember/runloop';
 import {
   moduleForComponent,
   test
 } from 'ember-qunit';
-import Ember from 'ember';
-const { run } = Ember;
 
 moduleForComponent('sortable-group', { unit: true });
 
@@ -29,12 +29,12 @@ test('[de]registerItem', function(assert) {
 
   component.registerItem(item);
 
-  assert.ok(component.get('items').contains(item),
+  assert.ok(component.get('items').includes(item),
     'expected registerItem to add item to items');
 
   component.deregisterItem(item);
 
-  assert.ok(!component.get('items').contains(item),
+  assert.ok(!component.get('items').includes(item),
     'expected registerItem to remove item from items');
 });
 
@@ -241,7 +241,7 @@ test('commit without specified group model', function(assert) {
     model: 'foo'
   }];
 
-  let targetObject = Ember.Object.create({
+  let targetObject = EmberObject.create({
     reorder(newOrder) {
       this.newOrder = newOrder;
     }
@@ -275,7 +275,7 @@ test('commit with specified group model', function(assert) {
   let model = {
     items: items
   };
-  let targetObject = Ember.Object.create({
+  let targetObject = EmberObject.create({
     reorder(model, newOrder) {
       model.newOrder = newOrder;
       targetObject.newModel = model;
@@ -308,7 +308,7 @@ test('commit with missmatched group model', function(assert) {
     model: 'foo'
   }];
   let model = null;
-  let targetObject = Ember.Object.create({
+  let targetObject = EmberObject.create({
     reorder(model, newOrder) {
       if (typeof newOrder !== 'undefined') {
         targetObject.correctActionFired = true;
@@ -360,4 +360,11 @@ test('draggedModel', function(assert) {
   run(() => {
     component.commit();
   });
+});
+
+test('renders data-test-selector', function(assert) {
+  let component = this.subject();
+
+  assert.ok(component.get('attributeBindings').indexOf('data-test-selector') > -1,
+  'support data-test-selector attribute binging');
 });

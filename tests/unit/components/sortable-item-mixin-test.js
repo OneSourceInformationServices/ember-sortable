@@ -1,12 +1,11 @@
-import Ember from 'ember';
-import SortableItemMixin from 'ember-sortable/mixins/sortable-item';
-import { module, test } from 'qunit';
-const { Component, run } = Ember;
+import EmberObject from '@ember/object';
+import { run } from '@ember/runloop';
+import { moduleForComponent, test } from 'ember-qunit';
+import $ from 'jquery';
 
 const MockEvent = { originalEvent: null };
 const MockModel = { name: 'Mock Model' };
-const MockComponent = Component.extend(SortableItemMixin);
-const MockGroup = Ember.Object.extend({
+const MockGroup = EmberObject.extend({
   direction: 'y',
   registerItem(item) {
     this.item = item;
@@ -24,12 +23,16 @@ const MockGroup = Ember.Object.extend({
 let group;
 let subject;
 
-module('mixin:sortable-item', {
+moduleForComponent('sortable-item-mixin', {
+  unit: true,
+  needs: [],
+
   beforeEach() {
     run(() => {
       group = MockGroup.create();
-      subject = MockComponent.create({ group });
-      subject.appendTo('#ember-testing');
+      subject = this.subject();
+      subject.set('group', group);
+      this.render();
     });
   },
 
@@ -54,6 +57,19 @@ test('isAnimated', function(assert) {
 
   subject.$().css({ transition: 'none' });
   assert.equal(subject.get('isAnimated'), false);
+});
+
+test('isDragging is disabled when destroyed', function(assert) {
+  assert.expect(3);
+
+  run(() => {
+    subject.set('model', MockModel);
+    assert.equal(subject.get('isDragging'), false);
+    subject._startDrag(MockEvent);
+    assert.equal(subject.get('isDragging'), true);
+    subject.destroy();
+    assert.equal(subject.get('isDragging'), false);
+  });
 });
 
 test('transitionDuration', function(assert) {
@@ -140,7 +156,7 @@ test('registers itself with group', function(assert) {
 
 test('deregisters itself when removed', function(assert) {
   run(() => {
-    subject.remove();
+    subject.destroy();
   });
   assert.equal(group.item, undefined,
     'expected to be deregistered with group');

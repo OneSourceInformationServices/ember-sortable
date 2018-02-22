@@ -1,4 +1,4 @@
-import Ember from 'ember';
+import { run } from '@ember/runloop';
 import { module, test } from 'qunit';
 import startApp from '../../tests/helpers/start-app';
 
@@ -8,7 +8,7 @@ module('Acceptance | smoke', {
   },
 
   afterEach: function() {
-    Ember.run(this.application, 'destroy');
+    run(this.application, 'destroy');
   }
 });
 
@@ -101,6 +101,23 @@ test('reordering with mouse events', function(assert) {
     assert.equal(tableContents(), 'Dos Tres Uno Cuatro Cinco');
     assert.equal(scrollableContents(), 'Dos Tres Uno Cuatro Cinco');
   });
+
+  reorder(
+    'mouse',
+    '.vertical-distance-demo li',
+    ':contains("Tres")',
+    ':contains("Dos")',
+    ':contains("Uno")',
+    ':contains("Cuatro")',
+    ':contains("Cinco")'
+  );
+
+  andThen(() => {
+    assert.equal(verticalContents(), 'Tres Dos Uno Cuatro Cinco');
+    assert.equal(horizontalContents(), 'Tres Dos Uno Cuatro Cinco');
+    assert.equal(tableContents(), 'Tres Dos Uno Cuatro Cinco');
+    assert.equal(scrollableContents(), 'Tres Dos Uno Cuatro Cinco');
+  });
 });
 
 test('reordering with touch events', function(assert) {
@@ -162,6 +179,23 @@ test('reordering with touch events', function(assert) {
     assert.equal(horizontalContents(), 'Uno Dos Tres Cuatro Cinco');
     assert.equal(tableContents(), 'Uno Dos Tres Cuatro Cinco');
     assert.equal(scrollableContents(), 'Uno Dos Tres Cuatro Cinco');
+  });
+
+  reorder(
+    'touch',
+    '.vertical-distance-demo li',
+    ':contains("Tres")',
+    ':contains("Dos")',
+    ':contains("Uno")',
+    ':contains("Cuatro")',
+    ':contains("Cinco")'
+  );
+
+  andThen(() => {
+    assert.equal(verticalContents(), 'Tres Dos Uno Cuatro Cinco');
+    assert.equal(horizontalContents(), 'Tres Dos Uno Cuatro Cinco');
+    assert.equal(tableContents(), 'Tres Dos Uno Cuatro Cinco');
+    assert.equal(scrollableContents(), 'Tres Dos Uno Cuatro Cinco');
   });
 });
 

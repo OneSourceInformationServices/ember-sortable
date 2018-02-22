@@ -67,7 +67,7 @@
   color: pink;
 }
 
-.vertical-spacing-demo .sortable-item {
+.vertical-spacing-demo .sortable-item, .vertical-distance-demo .sortable-item {
   display: block;
   position: relative;
   background: #58D3F7;
@@ -77,8 +77,13 @@
   text-align: center;
 }
 
-.vertical-spacing-demo .sortable-item.is-dragging {
+.vertical-spacing-demo .sortable-item.is-dragging, .vertical-distance-demo .sortable-item.is-dragging {
   background: #A9E2F3;
+}
+
+.horizontal-demo {
+  overflow: auto;
+  white-space: nowrap;
 }
 
 .horizontal-demo .sortable-item {
@@ -154,4 +159,8 @@
   top: 0; right: 0; bottom: 0;
   background: rgba(127, 0, 0, .5);
   color: pink;
+}
+
+#ember-testing {
+  transform: none !important;
 }

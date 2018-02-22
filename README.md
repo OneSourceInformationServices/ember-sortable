@@ -107,6 +107,16 @@ To change this property, define `spacing` on `sortable-item` (default is `0`):
 {{#sortable-item tagName="li" group=group spacing=15}}
 ```
 
+### Changing the drag tolerance
+
+`distance` attribute changes the tolerance, in pixels, for when sorting should start.
+If specified, sorting will not start until after mouse is dragged beyond distance.
+Can be used to allow for clicks on elements within a handle.
+
+```hbs
+{{#sortable-item group=group distance=30}}
+```
+
 ### CSS, Animation
 
 Sortable items can be in one of three states: default, dragging, dropping.
@@ -192,6 +202,19 @@ No data is mutated by `sortable-group` or `sortable-item`. In the spirit of “d
 `sortable-group` yields itself to the block so that it may be assigned explicitly to each item’s `group` property.
 
 Each item takes a `model` property. This should be fairly self-explanatory but it’s important to note that it doesn’t do anything with this object besides keeping a reference for later use in `onChange`.
+
+### Accessibility
+
+`sortable-item`s can receive a `tabindex` which allows them to be focused.  Use this to enable keyboard sorting for accessibility.
+
+```hbs
+{{#each myItems as |item idx| }}
+  {{#sortable-item tabindex=0 keyUp=(action 'keyUp' idx) tagName="li" model=item group=group handle=".handle"}}
+    {{item.name}}
+    <span class="handle">&varr;</span>
+  {{/sortable-item}}
+{{/each}}
+```
 
 ## Testing
 
