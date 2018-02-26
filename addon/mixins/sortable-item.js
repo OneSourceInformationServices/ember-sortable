@@ -7,7 +7,7 @@ import scrollParent from '../system/scroll-parent';
 import ScrollContainer from '../system/scroll-container';
 import { invokeAction } from 'ember-invoke-action';
 import { throttle } from '@ember/runloop';
-import { computed } from '@ember/computed';
+import { computed } from '@ember/object';
 
 const dragActions = 'mousemove.emberSortable touchmove.emberSortable';
 const elementClickAction = 'click.emberSortable';
